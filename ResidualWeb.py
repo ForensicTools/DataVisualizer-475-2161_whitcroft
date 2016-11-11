@@ -1,8 +1,14 @@
 '''
 '@author James Whitcroft
-'@update 4:32 PM 10/28/2016
+'@update 4:20 PM 11/11/2016
 '''
-import os, re, binascii, math, json
+import os
+import re
+import binascii
+import math
+import json
+import sys
+import getopt
 
 '''
 returns a list of active users
@@ -231,6 +237,10 @@ def readCacheFile(filename):
 		if len(uri)%2==0:
 			return([str(binascii.unhexlify(uri)).replace('b','').replace("'",''),version,fetchCount,modDate,freq,expires])
 		else:
+			l=''
+			for ch in range(len(uri), 2):
+				l=l+str(binascii.unhexlify(ch))
+				print(l)
 			return([uri,version,fetchCount,modDate,freq,expires])
 
 def dateSortModify(dic, mac):
@@ -304,10 +314,208 @@ def cleanUp():
 @input 
 @input
 '''
-def htmlCreater(users, mozCache, choCache):
-	if os.path.exists('residualRender.json'):
-		os.remove('residualRender.json')
-	fh=open('residualRender.json','w')
+def htmlCreater():
+	if os.path.exists('residualRender.html'):
+		os.remove('residualRender.html')
+	fh=open('residualRender.html','w')
+	print("h")
+	fh.write('<!DOCTYPE html>\n'+
+		'<html>\n'+
+		'<head>\n'+
+		'<meta charset="utf-8">\n'+
+		'<style>\n'+
+
+		'.node {\n'+
+		'  cursor: pointer;\n'+
+		'}\n'+
+
+		'.node circle {\n'+
+		'  fill: #fff;\n'+
+		'  stroke: steelblue;\n'+
+		'  stroke-width: 1.5px;\n'+
+		'}\n'+
+
+		'.node text {\n'+
+		'  font: 10px sans-serif;\n'+
+		'}\n'+
+
+		'.link {\n'+
+		'  fill: none;\n'+
+		'  stroke: #ccc;\n'+
+		'  stroke-width: 1.5px;\n'+
+		'}\n'+
+
+		'</style>\n'+
+		'</head>\n'+
+		'<body>\n'+
+		'<script src="https://d3js.org/d3.v2.min.js"></script>\n'+
+		'<script>\n'+
+
+		'var margin = {top: 20, right: 120, bottom: 20, left: 120},\n'+
+		'	width = 960 - margin.right - margin.left,\n'+
+		'	height = 800 - margin.top - margin.bottom;\n'+
+
+		'var i = 0,\n'+
+		'	duration = 750,\n'+
+		'	root;\n'+
+
+		'var tree = d3.layout.tree()\n'+
+		'	.size([height, width]);\n'+
+
+		'var diagonal = d3.svg.diagonal()\n'+
+		'	.projection(function(d) { return [d.y, d.x]; });\n'+
+
+		'var svg = d3.select("body").append("svg")\n'+
+		'	.attr("width", width + margin.right + margin.left)\n'+
+		'	.attr("height", height + margin.top + margin.bottom)\n'+
+		'	.append("g")\n'+
+		'		.attr("transform", "translate(" + margin.left + "," + margin.top + ")");\n'+
+
+		'd3.json("dates.json", function(Dates) {\n'+
+
+		'  root = Dates;\n'+
+		'  root.x0 = height / 2;\n'+
+		'  root.y0 = 0;\n'+
+
+		'  function collapse(d) {\n'+
+		'	if (d.children) {\n'+
+		'	  d._children = d.children;\n'+
+		'	  d._children.forEach(collapse);\n'+
+		'	  d.children = null;\n'+
+		'	}\n'+
+		'  }\n'+
+
+		'  root.children.forEach(collapse);\n'+
+		'  update(root);\n'+
+		'});\n'+
+
+		'd3.select(self.frameElement).style("height", "800px");\n'+
+
+		'function update(source) {\n'+
+
+		'  var nodes = tree.nodes(root).reverse(),\n'+
+		'	  links = tree.links(nodes);\n'+
+
+		'  nodes.forEach(function(d) { d.y = d.depth * 180; });\n'+
+
+		'  var node = svg.selectAll("g.node")\n'+
+		'	  .data(nodes, function(d) { return d.id || (d.id = ++i); });\n'+
+
+		'  var nodeEnter = node.enter().append("g")\n'+
+		'	  .attr("class", "node")\n'+
+		'	  .attr("transform", function(d) { return "translate(" + source.y0 + "," + source.x0 + ")"; })\n'+
+		'	  .on("click", click);\n'+
+
+		'  nodeEnter.append("circle")\n'+
+		'	  .attr("r", 1e-6)\n'+
+		'	  .style("fill", function(d) { return d._children ? "l	ightsteelblue" : "#fff"; });\n'+
+
+		'  nodeEnter.append("text")\n'+
+		'	  .attr("x", function(d) { return d.children || d._children ? -10 : 10; })\n'+
+		'	  .attr("dy", ".35em")\n'+
+		'	  .attr("text-anchor", function(d) { return d.children || d._children ? "end" : "start"; })\n'+
+		'	  .text(function(d) { return d.name; })\n'+
+		'	  .style("fill-opacity", 1e-6);\n'+
+
+		'  var nodeUpdate = node.transition()\n'+
+		'	  .duration(duration)\n'+
+		'	  .attr("transform", function(d) { return "translate(" + d.y + "," + d.x + ")"; });\n'+
+
+		'  nodeUpdate.select("circle")\n'+
+		'	  .attr("r", 4.5)\n'+
+		'	  .style("fill", function(d) { return d._children ? "lightsteelblue" : "#fff"; });\n'+
+
+		'  nodeUpdate.select("text")\n'+
+		'	  .style("fill-opacity", 1);\n'+
+
+		'  var nodeExit = node.exit().transition()\n'+
+		'	  .duration(duration)\n'+
+		'	  .attr("transform", function(d) { return "translate(" + source.y + "," + source.x + ")"; })\n'+
+		'	  .remove();\n'+
+
+		'  nodeExit.select("circle")\n'+
+		'	  .attr("r", 1e-6);\n'+
+
+		'  nodeExit.select("text")\n'+
+		'	  .style("fill-opacity", 1e-6);\n'+
+
+		'  var link = svg.selectAll("path.link")\n'+
+		'	  .data(links, function(d) { return d.target.id; });\n'+
+
+		'  link.enter().insert("path", "g")\n'+
+		'	  .attr("class", "link")\n'+
+		'	  .attr("d", function(d) {\n'+
+		'		var o = {x: source.x0, y: source.y0};\n'+
+		'		return diagonal({source: o, target: o});\n'+
+		'	  });\n'+
+
+		'  link.transition()\n'+
+		'	  .duration(duration)\n'+
+		'	  .attr("d", diagonal);\n'+
+
+		'  link.exit().transition()\n'+
+		'	  .duration(duration)\n'+
+		'	  .attr("d", function(d) {\n'+
+		'		var o = {x: source.x, y: source.y};\n'+
+		'		return diagonal({source: o, target: o});\n'+
+		'	  })\n'+
+		'	  .remove();\n'+
+
+		'  nodes.forEach(function(d) {\n'+
+		'	d.x0 = d.x;\n'+
+		'	d.y0 = d.y;\n'+
+		'  });\n'+
+		'}\n'+
+
+		'function click(d) {\n'+
+		'  if (d.children) {\n'+
+		'	d._children = d.children;\n'+
+		'	d.children = null;\n'+
+		'  } else {\n'+
+		'	d.children = d._children;\n'+
+		'	d._children = null;\n'+
+		'  }\n'+
+		'  update(d);\n'+
+		'}\n'+
+
+		'</script>\n'+
+		'</body>\n'+
+		'</html>\n')
+	fh.close()
+	
+'''
+@input userDict, a list of dicts
+	format {'username':}
+'''
+def renderUserFormat(userDict):
+	count=1
+	if os.path.exists('Users.json'):
+		os.remove('Users.json')
+	if os.path.exists('residualRenderUser.json'):
+		os.remove('residualRenderUser.json')
+	fh=open('residualRenderUser.json','a')
+	fh.write('{"name":"Users", "children": [')
+
+	for i in ['Modify','Access','Create']:
+		#MAC
+		fh.write('{"name": "'+ str(i) +'", "children": [')
+		for mac in dateDict:
+			for date in sorted(mac.keys()):
+				#dates
+				fh.write('{"name": "'+str(date)+'", "children": [')
+				#urls
+				for url in range(len(mac[date])):
+					if url==len(mac[date])-1:
+						fh.write('{"name": "'+mac[date][url][0]+'"}')
+					else:
+						fh.write('{"name": "'+mac[date][url][0]+'"},')
+				fh.write(']}')
+		if count == 3:
+			fh.write(']}')
+		else:
+			fh.write(']},')
+			count=count+1
+	fh.write(']}')	
 	
 '''
 @input dateDict, a list of dicts [modify,access,creation]
@@ -321,7 +529,7 @@ def renderDateFormat(dateDict):
 		os.remove('residualRender.json')
 	fh=open('residualRender.json','a')
 	fh.write('{"name":"Dates", "children": [')
-
+	'''
 	for i in ['Modify','Access','Create']:
 		#MAC
 		fh.write('{"name": "'+ str(i) +'", "children": [')
@@ -347,6 +555,7 @@ def renderDateFormat(dateDict):
 		#MAC
 		fh.write('\t{"name": "'+ str(i) +'", "children": [\n')
 		for mac in dateDict:
+			k=len(mac.keys())-1
 			for date in sorted(mac.keys()):
 				#dates
 				fh.write('\t\t{"name": "'+str(date)+'", "children": [\n')
@@ -354,31 +563,25 @@ def renderDateFormat(dateDict):
 				for url in range(len(mac[date])):
 					if url==len(mac[date])-1:
 						fh.write('\t\t\t{"name": "'+mac[date][url][0]+'"}\n')
+						if k==0:
+							fh.write('\t\t\t]}\n')
+						else:
+							fh.write('\t\t\t]},\n')
+							k=k-1
 					else:
 						fh.write('\t\t\t{"name": "'+mac[date][url][0]+'"},\n')
-				fh.write('\t\t\t]},\n')
-		if count == 3:
-			fh.write('\n\t\t]}\n')
-		else:
-			fh.write('\n\t\t]},\n')
-			count=count+1
+			#	if k==0:
+			#		fh.write('\t\t\t]}\n')
+			#	else:
+			#		fh.write('\t\t\t]},\n')
+			#		k=k-1
+			if count == 3:
+				fh.write('\n\t\t=>]}\n')
+			else:
+				fh.write('\n\t\t=>]},\n')
+				count=count+1
 	fh.write('\n\t]}\n')
 	
-	
-		for x in sorted(dateDict.keys()):
-			#dates
-			fh.write('\t\t"name": "'+ str(x) +'", "children": [{\n')
-			for y in range(len(dateDict[x])):
-				#time
-				fh.write('\t\t\t"name" : "'+ str(dateDict[x][y][1]) +'", "children":[\n')
-				for z in range(len(dateDict[x])):
-					if dateDict[x][z][1] == dateDict[x][y][1]:
-							fh.write('\t\t\t\t{"name" :"'+ str(dateDict[x][z][0]) +'"},\n')
-				fh.write(']},{\n')
-			fh.write('\n\t\t\t\t}\n')
-		fh.write('\n\t\t\t}\n')
-	fh.write('\n\t\t}\n')
-	'''
 	fh.close()
 	fh=open('ResidualRender.json','r')
 	fJSON=open('Dates.json','w')
@@ -410,7 +613,7 @@ def main():
 	for k in dns.keys():
 		print("requested=> "+k+"\n")
 		print("reply=> "+dns.get(k)+'\n')
-'''
+
 	#manually insert user for testing
 	f=checkMozilla('James')
 #	for k in f[1].keys():
@@ -446,5 +649,33 @@ def main():
 #	for y in sorted(dd.keys()):
 #		print(str(y)+'\n'+str(dd[y]))
 	renderDateFormat(dd)
-	
-main()
+	'''
+	htmlCreater()
+
+#running on windows?
+if sys.platform.startswith('win'):
+	print(len(sys.argv))
+	try:
+		opts, args=getopt.getopt(sys.argv[1:], "duh:", ['dates','user','help'])
+	except getopt.GetoptError as err:
+		print(str(err))
+		sys.exit(2)
+	for o, a in opts:
+		if o in ('-d','--dates'):
+			print('fuck')
+		elif o in ('-u','--user'):
+			print(a)
+		elif o in ('-h','--help'):
+			print(a)
+	main()
+else:
+	print('Invalid platform; try Windows')
+'''
+TODO:
+error handling
+user input
+system check -done
+fix downloads
+implement ie parse
+pull images from moz
+'''
