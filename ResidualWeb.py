@@ -1,6 +1,6 @@
 '''
 '@author James Whitcroft
-'@update 4:20 PM 11/11/2016
+'@update 4:24 PM 11/18/2016
 '''
 import os
 import re
@@ -9,6 +9,7 @@ import math
 import json
 import sys
 import getopt
+import sqlite3
 
 '''
 returns a list of active users
@@ -252,11 +253,66 @@ def dateSortModify(dic, mac):
 			else:
 				dateDict[dic[key][mac][0]]=[(dic[key][4][0],dic[key][mac][1])]
 	return dateDict
-			
-def readCacheFile2(filename):
-	#binascii.hexlify(struct.pack('>h', int))
-	return
-			
+
+def readFirefoxHistory():
+	path=[]
+	cacheDict={}
+	os.chdir('/')
+	os.system('dir /s places.sqlite > %HOMEPATH%\\desktop\\cache2Finder.txt')
+	os.chdir(os.environ['HOMEPATH']+'\\desktop')
+	fh=open('cache2Finder.txt','r')
+	for line in fh:
+		if 'Directory of' in line:
+			if 'Firefox' in line:
+				l=line.split()		#path at l[2]
+	fh.close()	
+	path.append(str(l[2])+'/places.sqlite')
+	path.append(str(l[2])+'/formhistory.sqlite')
+	if len(path)>0:
+		conn=sqlite3.connect(path[0])
+		cc=conn.cursor()
+		for entry in cc.execute('SELECT datetime(moz_historyvisits.visit_date/1000000, "unixepoch", "localtime"), moz_places.url FROM moz_places, moz_historyvisits WHERE moz_places.id = moz_historyvisits.place_id'):
+			print(entry)
+		conn=sqlite3.connect(path[1])
+		cc=conn.cursor()
+		print('--------')
+		for entry in cc.execute('SELECT * FROM moz_formhistory'):
+			print(entry)
+	
+def readChromeHistory():
+	path=[]
+	cachelist=[]
+	downs=[]
+	os.chdir('/')
+	os.system('dir /s History > %HOMEPATH%\\desktop\\cache2Finder.txt')
+	os.chdir(os.environ['HOMEPATH']+'\\desktop')
+	fh=open('cache2Finder.txt','r')
+	for line in fh:
+		if 'Directory of' in line:
+			if 'Chrome' in line:
+				l=line.split()		#path at l[2]+l[3]
+	fh.close()
+	path.append(str(l[2])+' '+str(l[3])+'/History')
+	if len(path)>0:
+		con=sqlite3.connect(path[0])
+		c=con.cursor()
+		#downloads
+		for entry in c.execute('SELECT datetime(((downloads.start_time/1000000)-11644473600), "unixepoch"), total_bytes,'+
+									' target_path, downloads_url_chains.url FROM downloads, downloads_url_chains'):
+			#print(entry)
+			if not entry==None:
+				downs.append(entry)
+		#urls
+		for entry in c.execute('SELECT datetime(((V.visit_time/1000000)-11644473600), "unixepoch"),'
+										' datetime(((U.last_visit_time/1000000)-11644473600), "unixepoch"),U.url, '
+										'U.visit_count FROM urls AS U, visits AS V WHERE U.id = V.url'):
+			#print(entry)
+			if not entry==None:
+				cachelist.append(entry)
+	else:	
+		return (downs,cachelist)
+		
+	return (downs,cachelist)
 #pretty sure this will only read from local box and not external hdd	
 def dnsCache():
 	os.system("ipconfig /displaydns > dns.txt")
@@ -308,11 +364,7 @@ def cleanUp():
 		os.remove('cache2Dump.txt')
 
 '''
-@input users, a list of users
-@input mozCache, a dict containing mozilla cache entries
-@input choCache, a dict containing chrome cache entries
-@input 
-@input
+
 '''
 def htmlCreater():
 	if os.path.exists('residualRender.html'):
@@ -482,6 +534,41 @@ def htmlCreater():
 		'</body>\n'+
 		'</html>\n')
 	fh.close()
+
+'''
+@input coupleOfTuples tuple formatted (((moz downloads),(moz urls)),((chrome downloads),(chrome urls)))
+'''
+def jsonCode(coupleOfTuples):
+	times=['12/3','12/33','1/4']
+	count=1
+	t=1
+	if os.path.exists('test.json'):
+		os.remove('test.json')
+	if os.path.exists('residualRenderUser.json'):
+		os.remove('residualRenderUser.json')
+	fh=open('residualRenderUser.json','a')
+	fh.write('{"name":"Types", "children": [')
+
+	for i in ['Downloads','History']:
+		#MAC
+		if count==2:
+			fh.write('{"name": "'+ str(i) +'", "children":[') #needs to close "}" and "]"
+		else:
+			fh.write('{"name": "'+ str(i) +'", "children":[')
+			#count=count+1
+		for time in times:
+			if t==len(times):
+				fh.write('{"name":"'+str(time)+'"}]')
+				t=1
+			else:
+				fh.write('{"name":"'+str(time)+'"},')
+				t=t+1
+		if count==2:
+			fh.write('}')
+		else:
+			fh.write('},')
+			count=count+1
+	fh.write(']}')
 	
 '''
 @input userDict, a list of dicts
@@ -650,8 +737,16 @@ def main():
 #		print(str(y)+'\n'+str(dd[y]))
 	renderDateFormat(dd)
 	'''
-	htmlCreater()
-
+#	htmlCreater()
+#	history=readChromeHistory()
+#	for x in history[0]:
+#		print(x)
+#	print('=======================')
+#	for y in history[1]:
+#		print(y)
+#	readFirefoxHistory()
+jsonCode(None)
+	
 #running on windows?
 if sys.platform.startswith('win'):
 	print(len(sys.argv))
