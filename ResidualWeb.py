@@ -1,450 +1,634 @@
 '''
 '@author James Whitcroft
-'@update 4:32 PM 10/28/2016
+'@update 1:18 PM 11/25/2016
 '''
-import os, re, binascii, math, json
+import os
+import re
+import sys
+import sqlite3
+import datetime
 
 '''
 returns a list of active users
 caller must check if null before accessing 
+@input launch the directory program is launched from
+@input root the target drive
 '''
-def grabUsers():
-	potentials=[]
-	actives=[]
-	os.system('net user > userDump.txt')
-	fh=open('userDump.txt','r')
-	for line in fh:
-		if not '---' in line:
-			if not 'User accounts' in line:
-				if not 'command completed' in line:
-					l=line.split()
-					potentials.extend(l)
-	#active?
-	for user in potentials:
-		os.system('net user '+str(user)+' > activeUsersCheck.txt')
-		fhtwo=open('activeUsersCheck.txt', 'r')
-		for line in fhtwo:
-			if 'Account active' in line:
-				h=line.split()
-				#print(h)
-				if (h[2]=='Yes') or (h[2]=='yes'):
-					actives.append(user)
-	fh.close()
-	fhtwo.close()
-	return actives
-
+def grabUsers(launch,root):
+	try:
+		potentials=[]
+		actives=[]
+		os.chdir(root)
+		os.system('net user > '+str(launch)+'\\userDump.txt')
+		fh=open('userDump.txt','r')
+		for line in fh:
+			if not '---' in line:
+				if not 'User accounts' in line:
+					if not 'command completed' in line:
+						l=line.split()
+						potentials.extend(l)
+		#active?
+		os.chdir(launch)
+		for user in potentials:
+			os.system('net user '+str(user)+' > activeUsersCheck.txt')
+			fhtwo=open('activeUsersCheck.txt', 'r')
+			for line in fhtwo:
+				if 'Account active' in line:
+					h=line.split()
+					#print(h)
+					if (h[2]=='Yes') or (h[2]=='yes'):
+						actives.append(user.lower())
+		fh.close()
+		fhtwo.close()
+		return actives
+	except:
+		print('Something went wrong::Exiting')
+		input()
+		sys.exit(-1)
+		
 '''
-check default cache locations for Mozilla
-@input u is a list of active users
-@input d is a list of drive letters
-@return cacheDict is a map of cache names 0-n found in mozillas cache2 file
-	to a list of cache data formatted as 
-		[size, creation date, last access, last written]
-			dates are in tuple form (date, time)
-@return path, a list of paths, to the cache2 default.
-	number of paths <= number of users always
-'''
-#NEED TO MAKE THIS USABLE FOR MULTIPLE USERS AND DRIVES
-#TWO LOOPS WILL SOLVE THIS
-
-def checkMozilla(user):
-	path=[]
-	cacheDict={}
-	os.chdir('/')
-	os.system('dir /s entries > %HOMEPATH%\\desktop\\cache2Finder.txt')
-	#if len(u)<1:
-	#	input('no user profiles found...exiting')
-	#	exit()
-	#userDict={}#user=>entries list
-	os.chdir(os.environ['HOMEPATH']+'\\desktop')
-	fh=open('cache2Finder.txt','r')
-	for line in fh:
-		if 'Directory of' in line:
-			if 'Mozilla' in line:
-				if user.lower() in line.lower():
-					l=line.split()		#path at l[2]
-	fh.close()
-	#establish file name, size, and date information
-	path.append(str(l[2])+'\\entries\\')
-	for i in ['c','a','w']:
-		os.system('dir "'+str(l[2])+'/entries" /o:s /t:'+str(i)+' > cache2Dump.txt')
-		myHelper(cacheDict, 'Mozilla')
-	return (path, cacheDict)
-
-'''
-chrome default cache search
-@return dict mapping file names to file data
-	formatted [size,(create, time),(access, time),(write, time)]
-'''
-def checkChrome():
-	path=[]
-	cacheDict={}
-	os.chdir('/')
-	os.system('dir /s Cache > %HOMEPATH%\\desktop\\cache2Finder.txt')
-	#if len(u)<1:
-	#	input('no user profiles found...exiting')
-	#	exit()
-	#userDict={}#user=>entries list
-	os.chdir(os.environ['HOMEPATH']+'\\desktop')
-	fh=open('cache2Finder.txt','r')
-	for line in fh:
-		if 'Directory of' in line:
-			if 'Chrome' in line:
-				l=line.split()		#path at l[2]+l[3]
-	fh.close()
-	path.append(str(l[2])+' '+str(l[3])+'/Cache')
-	#establish file name, size, and date information
-	for i in ['c','a','w']:
-		os.system('dir "'+str(l[2])+' '+str(l[3])+'/Cache" /o:s /t:'+str(i)+' > cache2Dump.txt')
-		myHelper(cacheDict, 'Chrome')
-	return (path, cacheDict)
-
+Validate a windows user exists by locating user profile
 '''	
-helps to parse chrome and firefox cache data
-by validating lines read from a file
-@input cacheDict a dictonary mapping file names to data
-@input browser a string representing the browser 'mozilla' or 'chrome'
+def checkUserExist(root, user):
+	if os.path.exists(str(root)+'Users\\'+str(user)):
+		return True
+	return False
+
 '''
-def myHelper(cacheDict, browser):
-	fh=open('cache2Dump.txt','r')
+Read fire fox sqlite database, in case chrome isnt installed
+@input launch the directory program is launched from
+@input root the target drive
+@input user, the user to look for
+'''
+def readFirefoxHistory(launch, root, user):
+	l=[]
+	path=[]
+	cachelist=[]
+	forms=[]
+	os.chdir(root)
+	os.system('dir /s places.sqlite > '+str(launch)+'\\cache2Finder.txt')
+	os.chdir(launch)
+	fh=open('cache2Finder.txt','r')
 	for line in fh:
-		if not '<DIR>' in line:
-			if not 'bytes' in line:
-				if not 'Volume' in line:
-					if not str(browser) in line:
-						cacheLine=line.split()
-						#print(cacheLine)
-						if len(cacheLine)>=3:
-							if not cacheLine[4] in cacheDict.keys():
-								cacheDict[cacheLine[4]]=[cacheLine[3],(cacheLine[0], cacheLine[1]+' '+cacheLine[2])]
-							else:
-								cacheDict[cacheLine[4]].append((cacheLine[0], cacheLine[1]+' '+cacheLine[2]))		
+		if 'Directory of' in line:
+				if 'Firefox' in line:
+					if (user.lower() in line) or (user.upper() in line) or (user.capitalize() in line):
+						if root in line:
+							l=line.split()		#path at l[2]
+
 	fh.close()
-
-'''
-collects downloads from users download folder
-@input users a list of users to search downloads
-'''
-def getDowns(users):
-	found=[]
-	userDowns={}
-	os.chdir('/')
-	os.system('dir /s Downloads > %HOMEPATH%\\desktop\\downFinder.txt')
-	os.chdir(os.environ['HOMEPATH']+'\\desktop')
-	fh=open('downFinder.txt','r')
-	for line in fh:
-		for user in users:
-			if user.lower() in line.lower():
-				l=line.split()
-				found.append(l[2]+'\\Downloads')
-				userDowns[user]={}
-	fh.close()
-	os.chdir('/')
-	for dir in found:
-		for x in ['c','a','w']:
-			os.system('dir /t:'+str(x)+' '+'"'+str(dir)+'"'+' >%HOMEPATH%\\DESKTOP\\downFinder.txt' )
-			os.chdir(os.environ['HOMEPATH']+'\\desktop')
-			fh=open('downFinder.txt','r')
-			for line in fh:
-				if 'File Not Found' in line:
-					break
-				if not '<DIR>' in line:
-					if not 'bytes' in line:
-						if not 'Volume' in line:
-							if not 'Directory' in line:
-								l=line.split()
-								#THIS IS WRONG, POPULATES BOTH USERS WITH SAME DATA
-								for user in users:
-									if len(l)>=3:
-										if l[4] in userDowns[user]:
-											userDowns[user][l[4]].append((l[0],l[1]+' '+l[2]))
-										else:
-											userDowns[user][l[4]]=[l[3],(l[0],l[1]+' '+l[2])]
-	return userDowns
-
-'''
-parses cache2 files individually
-@input filename, the path to the cache2 file, one at a time
-'''
-def readCacheFile(filename):
-	fh=open(filename,'rb')
-	size=fh.seek(0,2)
-	#mozilla chunk size 262144
-	#2 hash bytes per chunk
-	chunkHash=math.ceil(size/262144)*(2)
-	fh.seek(-4,2)
-	loc=binascii.hexlify(fh.read(4))
-	fh.seek(int(loc,16)+(4+chunkHash))
-	#version
-	version=binascii.hexlify(fh.read(4))
-	#fetch count
-	fetchCount=binascii.hexlify(fh.read(4))
-	#last fetched date
-	fetchDate=binascii.hexlify(fh.read(4))
-	#last modified date
-	modDate=binascii.hexlify(fh.read(4))
-	#frequency
-	freq=binascii.hexlify(fh.read(4))
-	#expiration date
-	expires=binascii.hexlify(fh.read(4))
-	#key length
-	keyLen=binascii.hexlify(fh.read(4))
-	#uri
-	uri=str(binascii.hexlify(fh.read(int(keyLen,16))))
-	i=binascii.hexlify(fh.read(1))
-	if str(i)=="b''":
-		 pass
-	else:
-		l=[str(i)]
-		while not int(i,16)==0:
-			#uri=str(int(uri,16))+str(int(i,16))
-			l.append(str(i))
-			i=binascii.hexlify(fh.read(1))
-			if str(i)=="b''":
-				break
-		for g in l:
-			uri=uri+g
-		#dirty clean up of str uri
-		#trim byte flag
-		uri=uri.replace('b','')
-		#trim quotes
-		uri=uri.replace("'",'')
-		#trim spaces
-		uri=uri.replace(" ",'')
-		uri=uri.strip()
-		#entries are formatted :http:
-		#3a==':'
-		uri=uri[uri.find('3a')+2:]
-		#print(version)
-		#print(fetchCount)
-		#print(fetchDate)
-		#print(modDate)
-		#print(freq)
-		#print(expires)
-		#print(keyLen)
-		#print(uri[10:])
-		'''
-		NOT SURE WHY THIS HAPPENS YET, POSSIBLY DUE TO MY TRIMMING
-		NEEDS TO BE TESTED
-		'''
-		#print(str(binascii.unhexlify(uri)))
-		if len(uri)%2==0:
-			return([str(binascii.unhexlify(uri)).replace('b','').replace("'",''),version,fetchCount,modDate,freq,expires])
-		else:
-			return([uri,version,fetchCount,modDate,freq,expires])
-
-def dateSortModify(dic, mac):
-	dateDict={}
-	for key in dic.keys():
-		if not dic[key][4] == None:
-			if dic[key][mac][0] in dateDict.keys():
-				dateDict[dic[key][mac][0]].append((dic[key][4][0],dic[key][mac][1]))
-			else:
-				dateDict[dic[key][mac][0]]=[(dic[key][4][0],dic[key][mac][1])]
-	return dateDict
+	if not len(l)>0:
+		return([],[])
+	path.append(str(l[2])+'/places.sqlite')
+	path.append(str(l[2])+'/formhistory.sqlite')
+	if len(path)>0:
+		conn=sqlite3.connect(path[0])
+		cc=conn.cursor()
+		#urls
+		for entry in cc.execute('SELECT datetime(moz_historyvisits.visit_date/1000000, "unixepoch", "localtime"), moz_places.url,'
+								'datetime(moz_places.last_visit_date/1000000, "unixepoch", "localtime"), moz_places.visit_count '
+								'FROM moz_places, moz_historyvisits WHERE moz_places.id = moz_historyvisits.place_id'):
+			#print(entry)
+			cachelist.append(entry)
 			
-def readCacheFile2(filename):
-	#binascii.hexlify(struct.pack('>h', int))
-	return
-			
-#pretty sure this will only read from local box and not external hdd	
-def dnsCache():
-	os.system("ipconfig /displaydns > dns.txt")
-
-'''
-reads data from dns cache
-@return k: map{requested url, resolved url}
-'''
-def readDNS():
-	d={}
-	a=''
-	s=''
-	fh=open('dns.txt','r')
-	for line in fh:
-		if 'Name' in line:
-			if 'not' in line:
-				pass
-			else:
-				s=line.split(":")[1].strip()
-		if 'AA' in line or 'Host' in line:
-			if 'No' in line:
-				pass
-			else:
-				a=line.split(":")[1].strip()
-		if not a=='':
-			d[s]=a
-	fh.close()
-	#for k in d.keys():
-	#	print("requested=> "+k+"\n")
-	#	print("reply=> "+d[k]+'\n')
-	return d
+		conn=sqlite3.connect(path[1])
+		cc=conn.cursor()
+		#user input into forms
+		for entry in cc.execute('SELECT datetime((firstUsed/1000000), "unixepoch","localtime"), value,'
+								'datetime((lastUsed/1000000), "unixepoch","localtime"),'
+								' timesUsed, fieldName FROM moz_formhistory'):
+			#print(entry)
+			forms.append(entry)
 	
+	return(forms, cachelist)
+
+'''
+Read chrome sqlite database, in case firefox isnt installed
+@input launch the directory program is launched from
+@input root the target drive
+@input user, the user to look for
+'''	
+def readChromeHistory(launch, root, user):
+	l=[]
+	path=[]
+	cachelist=[]
+	downs=[]
+	os.chdir(root)
+	os.system('dir /s History > '+str(launch)+'\\cache2Finder.txt')
+	os.chdir(launch)
+	fh=open('cache2Finder.txt','r')
+	for line in fh:
+		if 'Directory of' in line:
+				if 'Chrome' in line:
+					if (user.lower() in line) or (user.upper() in line) or (user.capitalize() in line): 
+						if root in line:
+							l=line.split()		#path at l[2]+l[3]
+	
+	fh.close()
+	if not len(l)>0:
+		return([],[])
+	path.append(str(l[2])+' '+str(l[3])+'/History')
+	if len(path)>0:
+		con=sqlite3.connect(path[0])
+		c=con.cursor()
+		#downloads
+		for entry in c.execute('SELECT datetime((downloads.start_time/1000000-11644473600), "unixepoch"),'
+									'downloads_url_chains.url, total_bytes, target_path FROM downloads, downloads_url_chains'):
+			#print(entry)
+			if not entry==None:
+				downs.append(entry)
+		#urls
+		for entry in c.execute('SELECT datetime((V.visit_time/1000000-11644473600), "unixepoch"), U.url,'
+										' datetime((U.last_visit_time/1000000-11644473600), "unixepoch"), '
+										'U.visit_count FROM urls AS U, visits AS V WHERE U.id = V.url'):
+			#print(entry)
+			if not entry==None:
+				cachelist.append(entry)
+	else:	
+		return (downs,cachelist)
+		
+	return (downs,cachelist)
+
+'''
+find drives on running box
+#return a  list of drives found on box running program
+'''
 def findDrives():
 	return re.findall(r"[A-Z]+:.*$",os.popen("mountvol /").read(),re.MULTILINE)
-		
-def cleanUp():
-	os.chdir(os.environ['HOMEPATH']+'\\desktop')
+
+'''
+removes the clutter from launch drive
+@input launch, the drive that the program is running on
+'''	
+def cleanUp(launch):
+	os.chdir(launch)
 	if os.path.exists('cache2Finder.txt'):
 		os.remove('cache2Finder.txt')
 	if os.path.exists('activeUsersCheck.txt'):
 		os.remove('activeUsersCheck.txt')
-	if os.path.exists('dns.txt'):
-		os.remove('dns.txt')
 	if os.path.exists('userDump.txt'):
 		os.remove('userDump.txt')
 	if os.path.exists('downFinder.txt'):
 		os.remove('downFinder.txt')
-	if os.path.exists('cache2Dump.txt'):
-		os.remove('cache2Dump.txt')
 
 '''
-@input users, a list of users
-@input mozCache, a dict containing mozilla cache entries
-@input choCache, a dict containing chrome cache entries
-@input 
-@input
+writes html to a file and leaves it on launch drive
+for future analysis
+@input launch, the drive that the program was launched from
+@input user, the user who was processed
 '''
-def htmlCreater(users, mozCache, choCache):
-	if os.path.exists('residualRender.json'):
-		os.remove('residualRender.json')
-	fh=open('residualRender.json','w')
-	
-'''
-@input dateDict, a list of dicts [modify,access,creation]
-{"date":[(url,time),(url,time)...]}
-'''
-def renderDateFormat(dateDict):
-	count=1
-	if os.path.exists('Dates.json'):
-		os.remove('Dates.json')
-	if os.path.exists('residualRender.json'):
-		os.remove('residualRender.json')
-	fh=open('residualRender.json','a')
-	fh.write('{"name":"Dates", "children": [')
+def htmlCreater(launch, user):
+	os.chdir(launch)
+	if os.path.exists('residualRender'+str(user)+'.html'):
+		os.remove('residualRender'+str(user)+'.html')
+	fh=open('residualRender'+str(user)+'.html','w')
+	fh.write('<!DOCTYPE html>\n'+
+		'<html>\n'+
+		'<head>\n'+
+		'<meta charset="utf-8">\n'+
+		'<style>\n'+
 
-	for i in ['Modify','Access','Create']:
-		#MAC
-		fh.write('{"name": "'+ str(i) +'", "children": [')
-		for mac in dateDict:
-			for date in sorted(mac.keys()):
-				#dates
-				fh.write('{"name": "'+str(date)+'", "children": [')
-				#urls
-				for url in range(len(mac[date])):
-					if url==len(mac[date])-1:
-						fh.write('{"name": "'+mac[date][url][0]+'"}')
+		'.node {\n'+
+		'  cursor: pointer;\n'+
+		'}\n'+
+
+		'.node circle {\n'+
+		'  fill: #fff;\n'+
+		'  stroke: green;\n'+
+		'  stroke-width: 1.5px;\n'+
+		'}\n'+
+
+		'.node text {\n'+
+		'  font: 10px sans-serif;\n'+
+		'}\n'+
+
+		'.link {\n'+
+		'  fill: none;\n'+
+		'  stroke: #ccc;\n'+
+		'  stroke-width: 1.5px;\n'+
+		'}\n'+
+
+		'</style>\n'+
+		'</head>\n'+
+		'<body>\n'+
+		'<script src="https://d3js.org/d3.v2.min.js"></script>\n'+
+		'<script>\n'+
+
+		'var margin = {top: 20, right: 120, bottom: 20, left: 120},\n'+
+		'	width = 960 - margin.right - margin.left,\n'+
+		'	height = 800 - margin.top - margin.bottom;\n'+
+
+		'var i = 0,\n'+
+		'	duration = 750,\n'+
+		'	root;\n'+
+
+		'var tree = d3.layout.tree()\n'+
+		'	.size([height*3, width*2]);\n'+
+
+		'var diagonal = d3.svg.diagonal()\n'+
+		'	.projection(function(d) { return [d.y, d.x]; });\n'+
+
+		'var svg = d3.select("body").append("svg")\n'+
+		'	.attr("width", width*3 + margin.right + margin.left)\n'+
+		'	.attr("height", height*3 + margin.top + margin.bottom)\n'+
+		'	.append("g")\n'+
+		'		.attr("transform", "translate(" + margin.left + "," + margin.top + ")");\n'+
+
+		'd3.json("ResidualRender'+user+'.json", function(Dates) {\n'+
+
+		'  root = Dates;\n'+
+		'  root.x0 = height / 2;\n'+
+		'  root.y0 = 0;\n'+
+
+		'  function collapse(d) {\n'+
+		'	if (d.children) {\n'+
+		'	  d._children = d.children;\n'+
+		'	  d._children.forEach(collapse);\n'+
+		'	  d.children = null;\n'+
+		'	}\n'+
+		'  }\n'+
+
+		'  root.children.forEach(collapse);\n'+
+		'  update(root);\n'+
+		'});\n'+
+
+		'd3.select(self.frameElement).style("height", "800px");\n'+
+
+		'function update(source) {\n'+
+
+		'  var nodes = tree.nodes(root).reverse(),\n'+
+		'	  links = tree.links(nodes);\n'+
+
+		'  nodes.forEach(function(d) { d.y = d.depth * 380; });\n'+
+
+		'  var node = svg.selectAll("g.node")\n'+
+		'	  .data(nodes, function(d) { return d.id || (d.id = ++i); });\n'+
+
+		'  var nodeEnter = node.enter().append("g")\n'+
+		'	  .attr("class", "node")\n'+
+		'	  .attr("transform", function(d) { return "translate(" + source.y0 + "," + source.x0 + ")"; })\n'+
+		'	  .on("click", click);\n'+
+
+		'  nodeEnter.append("circle")\n'+
+		'	  .attr("r", 1e-6)\n'+
+		'	  .style("fill", function(d) { return d._children ? "blue" : "#fff"; });\n'+
+
+		'  nodeEnter.append("text")\n'+
+		'	  .attr("x", function(d) { return d.children || d._children ? -10 : 10; })\n'+
+		'	  .attr("y", function(d) { return d.children || d._children ? -15 : 0; })\n'+
+		'	  .attr("dy", ".35em")\n'+
+		'	  .attr("text-anchor", function(d) { return d.children || d._children ? "end" : "start"; })\n'+
+		'	  .text(function(d) { return d.name; })\n'+
+		'	  .style("fill-opacity", 1e-6);\n'+
+
+		'  var nodeUpdate = node.transition()\n'+
+		'	  .duration(duration)\n'+
+		'	  .attr("transform", function(d) { return "translate(" + d.y + "," + d.x + ")"; });\n'+
+
+		'  nodeUpdate.select("circle")\n'+
+		'	  .attr("r", 6.5)\n'+
+		'	  .style("fill", function(d) { return d._children ? "blue" : "#fff"; });\n'+
+
+		'  nodeUpdate.select("text")\n'+
+		'	  .style("fill-opacity", 1);\n'+
+
+		'  var nodeExit = node.exit().transition()\n'+
+		'	  .duration(duration)\n'+
+		'	  .attr("transform", function(d) { return "translate(" + source.y + "," + source.x + ")"; })\n'+
+		'	  .remove();\n'+
+
+		'  nodeExit.select("circle")\n'+
+		'	  .attr("r", 1e-6);\n'+
+
+		'  nodeExit.select("text")\n'+
+		'	  .style("fill-opacity", 1e-6);\n'+
+
+		'  var link = svg.selectAll("path.link")\n'+
+		'	  .data(links, function(d) { return d.target.id; });\n'+
+
+		'  link.enter().insert("path", "g")\n'+
+		'	  .attr("class", "link")\n'+
+		'	  .attr("d", function(d) {\n'+
+		'		var o = {x: source.x0, y: source.y0};\n'+
+		'		return diagonal({source: o, target: o});\n'+
+		'	  });\n'+
+
+		'  link.transition()\n'+
+		'	  .duration(duration)\n'+
+		'	  .attr("d", diagonal);\n'+
+
+		'  link.exit().transition()\n'+
+		'	  .duration(duration)\n'+
+		'	  .attr("d", function(d) {\n'+
+		'		var o = {x: source.x, y: source.y};\n'+
+		'		return diagonal({source: o, target: o});\n'+
+		'	  })\n'+
+		'	  .remove();\n'+
+
+		'  nodes.forEach(function(d) {\n'+
+		'	d.x0 = d.x;\n'+
+		'	d.y0 = d.y;\n'+
+		'  });\n'+
+		'}\n'+
+
+		'function click(d) {\n'+
+		'  if (d.children) {\n'+
+		'	d._children = d.children;\n'+
+		'	d.children = null;\n'+
+		'  } else {\n'+
+		'	d.children = d._children;\n'+
+		'	d._children = null;\n'+
+		'  }\n'+
+		'  update(d);\n'+
+		'}\n'+
+
+		'</script>\n'+
+		'</body>\n'+
+		'</html>\n')
+	fh.close()
+
+
+'''
+formats database queries in dictionaries with date-row format
+@input coupleOfTuples tuple formatted ((moz downloads),(moz urls),(chrome downloads),(chrome urls),(form input))
+@input list, list of indexes for set values in coupleOfTuples
+'''
+def dictMaker(coupleOfTuples,list):
+	ret={}
+	adders=[]
+	for x in list:
+		if len(coupleOfTuples[x])>0:
+			for y in range(0,len(coupleOfTuples[x])):
+				if len(coupleOfTuples[x][y])>0:
+					if not coupleOfTuples[x][y][0].split()[0] in ret.keys():
+						ret[coupleOfTuples[x][y][0].split()[0]]=[coupleOfTuples[x][y]]
 					else:
-						fh.write('{"name": "'+mac[date][url][0]+'"},')
+						for tup in ret[coupleOfTuples[x][y][0].split()[0]]:
+							if not coupleOfTuples[x][y][1] in tup:
+								adders.append(coupleOfTuples[x][y])
+								break
+						ret[coupleOfTuples[x][y][0].split()[0]]=ret[coupleOfTuples[x][y][0].split()[0]]+adders
+						adders=[]
+	return ret
+
+'''
+produces json file in location of residualRender.py with filename residualRender<user>.json
+@input launch, the launch location of the program
+@input coupleOfTuples tuple formatted ((moz downloads),(moz urls),(chrome downloads),(chrome urls),(form input))
+@input user, the user being processed
+'''
+def jsonCode(launch, coupleOfTuples, user):
+	downs=dictMaker(coupleOfTuples,[0,2])
+	hist=dictMaker(coupleOfTuples,[1,3])
+	form=dictMaker(coupleOfTuples,[4])
+	
+	os.chdir(launch)
+	if os.path.exists('residualRender'+user+'.json'):
+		os.remove('residualRender'+user+'.json')
+	fh=open('residualRender'+user+'.json','a')
+	count3=1
+	fh.write('{"name":"Records Found", "children": [')
+	for leaf in ['Downloads','History','Form Input']:
+		count1=1
+		count2=1
+		fh.write('{"name":"'+leaf+'","children":[')
+		
+		if leaf=='Downloads':
+			for date in sorted(downs.keys()):
+				fh.write('{"name":"'+date+'","children":[')
+				for url in downs[date]:
+					fh.write('{"name":"'+url[1].replace('\\','/')+'","children" : [')
+					for meta in range(2,len(url)):
+						if meta==len(url)-1:
+							fh.write('{"name":"Target Path: '+str(url[meta]).replace('\\','/')+'"}')
+						else:
+							fh.write('{"name":"Total Bytes: '+str(url[meta])+'"},')
+					if count1==len(downs[date]):
+						fh.write(']}')
+						count1=1
+					else:
+						fh.write(']},')
+						count1=count1+1
+				if count2==len(downs.keys()):
+					fh.write(']}')
+					count2=1
+				else:
+					fh.write(']},')
+					count2=count2+1
+
+			if count3==2:
+				fh.write(']}')
+			else:
 				fh.write(']},')
-		if count == 3:
-			fh.write(']}')
-		else:
-			fh.write(']},')
-			count=count+1
-	fh.write(']}')
-	'''
-	for i in ['Modify','Access','Create']:
-		#MAC
-		fh.write('\t{"name": "'+ str(i) +'", "children": [\n')
-		for mac in dateDict:
-			for date in sorted(mac.keys()):
-				#dates
-				fh.write('\t\t{"name": "'+str(date)+'", "children": [\n')
-				#urls
-				for url in range(len(mac[date])):
-					if url==len(mac[date])-1:
-						fh.write('\t\t\t{"name": "'+mac[date][url][0]+'"}\n')
+				count3=count3+1
+				
+		if leaf=='History':
+			for date in sorted(hist.keys()):
+				fh.write('{"name":"'+date+'","children":[')
+				for url in hist[date]:
+					fh.write('{"name":"'+url[1].replace('\\','/')+'","children":[')
+					for meta in range(2,len(url)):
+						if meta==len(url)-1:
+							fh.write('{"name":"Visit Count: '+str(url[meta]).replace('\\','/')+'"}')
+						else:
+							fh.write('{"name":"Last Visited: '+str(url[meta]).replace('\\','/')+'"},')
+					if count1==len(hist[date]):
+						fh.write(']}')
+						count1=1
 					else:
-						fh.write('\t\t\t{"name": "'+mac[date][url][0]+'"},\n')
-				fh.write('\t\t\t]},\n')
-		if count == 3:
-			fh.write('\n\t\t]}\n')
-		else:
-			fh.write('\n\t\t]},\n')
-			count=count+1
-	fh.write('\n\t]}\n')
-	
-	
-		for x in sorted(dateDict.keys()):
-			#dates
-			fh.write('\t\t"name": "'+ str(x) +'", "children": [{\n')
-			for y in range(len(dateDict[x])):
-				#time
-				fh.write('\t\t\t"name" : "'+ str(dateDict[x][y][1]) +'", "children":[\n')
-				for z in range(len(dateDict[x])):
-					if dateDict[x][z][1] == dateDict[x][y][1]:
-							fh.write('\t\t\t\t{"name" :"'+ str(dateDict[x][z][0]) +'"},\n')
-				fh.write(']},{\n')
-			fh.write('\n\t\t\t\t}\n')
-		fh.write('\n\t\t\t}\n')
-	fh.write('\n\t\t}\n')
-	'''
-	fh.close()
-	fh=open('ResidualRender.json','r')
-	fJSON=open('Dates.json','w')
-	fJSON.write(json.dumps(fh.read()))
-	fJSON.close()
-	fh.close()
-	
+						fh.write(']},')
+						count1=count1+1
+				if count2==len(hist.keys()):
+					fh.write(']}')
+					count2=1
+				else:
+					fh.write(']},')
+					count2=count2+1
+			if count3==3:
+				fh.write(']}')
+			else:
+				fh.write(']},')
+				count3=count3+1
+				
+				
+				
+		if leaf=='Form Input':
+			for date in sorted(form.keys()):
+				fh.write('{"name":"'+date+'","children":[')
+				for url in form[date]:
+					fh.write('{"name":"'+url[1].replace('\\','/')+'","children":[')
+					for meta in range(2,len(url)):
+						if meta==len(url)-1:
+							fh.write('{"name":"Input Field: '+str(url[meta]).replace('\\','/')+'"}')
+						elif meta==len(url)-2:
+							fh.write('{"name":"Input Count: '+str(url[meta]).replace('\\','/')+'"},')
+						else:
+							fh.write('{"name":"Last Used: '+str(url[meta]).replace('\\','/')+'"},')
+					if count1==len(form[date]):
+						fh.write(']}')
+						count1=1
+					else:
+						fh.write(']},')
+						count1=count1+1
+				if count2==len(form.keys()):
+					fh.write(']}')
+					count2=1
+				else:
+					fh.write(']},')
+					count2=count2+1
 
+			if count3==3:
+				fh.write(']}')
+			else:
+				fh.write(']},')
+				count3=count3+1
+				
+				
+	fh.write(']}')
+
+'''
+searches keyword provided by user, prints to screen and exits
+@input launch, the launch location of program
+@input root, the target drive
+@input user, the user being processed
+@input key, the keyword to search for
+'''
+def searchER(launch,root,user,key):
+	l=[]
+	path=[]
+	cachelist=[]
+	downs=[]
+	os.chdir(root)
+	os.system('dir /s History > '+str(launch)+'\\cache2Finder.txt')
+	os.chdir(launch)
+	fh=open('cache2Finder.txt','r')
+	for line in fh:
+		if 'Directory of' in line:
+				if 'Chrome' in line:
+					if (user.lower() in line) or (user.upper() in line) or (user.capitalize() in line): 
+						if root in line:
+							l=line.split()		#path at l[2]+l[3]
+	
+	fh.close()
+	if len(l)>0:
+		path.append(str(l[2])+' '+str(l[3])+'/History')
+		if len(path)>0:
+			con=sqlite3.connect(path[0])
+			c=con.cursor()
+		i=1
+		print('\nFrom Chrome::\n')
+		for entry in c.execute('select count(url) from urls where url like "%'+key+'%"'):
+			print('The keyword ::'+str(key)+':: has been found ::'+str(entry[0])+':: time(s)\n')
+		for entry in c.execute('select url from urls where url like "%'+key+'%"'):
+			print(str(i)+':: '+entry[0]+'\n')
+			i=i+1
+		
+	l=[]
+	path=[]
+	cachelist=[]
+	forms=[]
+	os.chdir(root)
+	os.system('dir /s places.sqlite > '+str(launch)+'\\cache2Finder.txt')
+	os.chdir(launch)
+	fh=open('cache2Finder.txt','r')
+	for line in fh:
+		if 'Directory of' in line:
+				if 'Firefox' in line:
+					if (user.lower() in line) or (user.upper() in line) or (user.capitalize() in line):
+						if root in line:
+							l=line.split()		#path at l[2]
+
+	fh.close()
+	if len(l)>0:
+		path.append(str(l[2])+'/places.sqlite')
+		if len(path)>0:
+			i=1
+			conn=sqlite3.connect(path[0])
+			cc=conn.cursor()
+			print('From Firefox::\n')
+			for entry in cc.execute('select count(url) from moz_places where url like "%'+key+'%"'):
+				print('The keyword ::'+str(key)+':: has been found ::'+str(entry[0])+':: time(s)\n')
+			for entry in cc.execute('select url from moz_places where url like "%'+str(key)+'%"'):
+				print(str(i)+':: '+entry[0]+'\n')
+				i=i+1
+				
+	
+		
+'''
+main function allows user to select drive and validates user provided
+'''
 def main():
-	'''
+	launch=os.getcwd()
 	drives=findDrives()
 	i=1
 	ilist=[]
+	print('\nTarget Drive Options...\n----------')
 	for d in drives:
-		print(str(i)+'=> '+d+'\n')
+		print('| '+str(i)+' | '+d.replace('\\','')+' |')
+		print('----------')
 		ilist.append(str(i))
 		i+=1
-	ui=input('\nDrive selection(s){seperated by spaces}: ')
+	ui=input('\nDrive selection # : ')
 	if not ui in ilist:
 		print('Invalid option')
 		main()
 	root=drives[int(ui)-1]
-	print(root.replace('\\',''))
-	os.system(root.replace('\\',''))
-	users=grabUsers()
-	print(users)
-	dnsCache()
-	dns=readDNS()
-	for k in dns.keys():
-		print("requested=> "+k+"\n")
-		print("reply=> "+dns.get(k)+'\n')
-'''
-	#manually insert user for testing
-	f=checkMozilla('James')
-#	for k in f[1].keys():
-#		print(str(k)+'\n'+str(f[1][k])+'\n')
-#	h=checkChrome()
-#	for v in h[1].keys():
-#		print(str(v)+'\n'+str(h[1][v])+'\n')
+	try:
+		os.chdir(root)
+	except:
+		print('Something went wrong:: Exiting')
+		input('Press Enter')
+		sys.exit(-1)
+	options=grabUsers(launch,root)
+	print('\n---------\nPotential Users\n---------')
+	for o in options:
+		print('| '+str(o)+' |')
+	print('---------')
+	usr=input('\nUser name: ')
+	if not checkUserExist(root,usr):
+		print('User ::'+str(usr)+':: Does Not Exist')
+		main()
+	print('\n-------------------\n| 1 | Term Search |'
+			'\n-------------------\n| 2 | Full Search |'
+			'\n-------------------')
+	ui=input('\n# : ')
+	if ui=='1':
+		ui=input('\nTerm to search: ')
+		searchER(launch,root,usr,ui)
+		cleanUp(launch)
+		input('\nEnter to Quit')
+		return
+	elif ui=='2':
+		try:
+			for u in usr.split():
+				fire=readFirefoxHistory(launch, root, u)
+				chrome=readChromeHistory(launch, root, u)
+				htmlCreater(launch, u)
+				if (len(chrome[0])+len(chrome[1])>0) and (len(fire[0])+len(fire[1])>0):
+					jsonCode(launch, ((),fire[1],chrome[0],chrome[1],fire[0]),u)
+				elif (len(chrome[0])+len(chrome[1])>0):
+					jsonCode(launch, ((),(),chrome[0],chrome[1],()),u)
+				elif (len(fire[0])+len(fire[1])>0):
+					jsonCode(launch, ((),fire[1],(),(),fire[0]),u)
+				else:
+					jsonCode(launch,((),(),(),(),()),u)
+		except:
+			print('Something went wrong::Exiting...')
+			input()
+			cleanUp(launch)
+			sys.exit(-1)
+		cleanUp(launch)
+		print('::Done::')
+		input()
+		return
+	else:
+		print('Invalid option')
+		main()
 	
-	#manually insert user(s) for testing
-#	g=getDowns(['jesus','james'])
-#	for v in g.keys():
-#		print('1:'+str(v)+'\n'+str(g[v])+'\n')
-	for cacheEntry in f[1].keys():
-		add=readCacheFile(f[0][0]+cacheEntry)
-		if not add==None:
-			add[0]=add[0][0:-4]+add[0][-3:]
-		f[1][cacheEntry].append(add)
-		
-	#remove all those files I created, sorry...)
-	fg=open('sort.txt','w+')
-	for k in f[1].keys():
-#		print(str(k)+'\n'+str(f[1][k])+'\n')
-		fg.write((str(k)+'\n'+str(f[1][k])+'\n'))
-	cleanUp()
-	fg.close()
-	dd=[]
-	modDates=dateSortModify(f[1],3)
-	accessDates=dateSortModify(f[1],2)
-	createDates=dateSortModify(f[1],1)
-	dd.append(modDates)
-	dd.append(accessDates)
-	dd.append(createDates)
-#	for y in sorted(dd.keys()):
-#		print(str(y)+'\n'+str(dd[y]))
-	renderDateFormat(dd)
 	
-main()
+#running on windows?
+if sys.platform.startswith('win'):
+	main()
+else:
+	print('Invalid platform; try Windows')
+	sys.exit(-1)
