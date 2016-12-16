@@ -7,6 +7,26 @@ import re
 import sys
 import sqlite3
 import datetime
+import time
+
+def grabUsers2(launch,root):
+	try:
+		l=[]
+		os.chdir(root)
+		os.system('dir '+str(root)+'Users > '+str(launch+'\\ResidualWeb')+'\\userDump.txt')
+		os.chdir(launch+'\\ResidualWeb')
+		fh=open('userDump.txt','r')
+		for line in fh:
+			if len(line.split())>0:
+				if not 'Volume' in line:
+					if not '.' in line:
+						if not 'Public' in line:
+							if not 'bytes' in line:
+								if not 'Directory' in line:
+									l.append(line.split()[4])
+	except:
+		return []
+	return l
 
 '''
 returns a list of active users
@@ -19,7 +39,7 @@ def grabUsers(launch,root):
 		potentials=[]
 		actives=[]
 		os.chdir(root)
-		os.system('net user > '+str(launch)+'\\userDump.txt')
+		os.system('net user > '+str(launch+'\\ResidualWeb')+'\\userDump.txt')
 		fh=open('userDump.txt','r')
 		for line in fh:
 			if not '---' in line:
@@ -66,8 +86,8 @@ def readFirefoxHistory(launch, root, user):
 	cachelist=[]
 	forms=[]
 	os.chdir(root)
-	os.system('dir /s places.sqlite > '+str(launch)+'\\cache2Finder.txt')
-	os.chdir(launch)
+	os.system('dir /s places.sqlite > '+str(launch+'\\ResidualWeb')+'\\cache2Finder.txt')
+	os.chdir(launch+'\\ResidualWeb')
 	fh=open('cache2Finder.txt','r')
 	for line in fh:
 		if 'Directory of' in line:
@@ -91,6 +111,7 @@ def readFirefoxHistory(launch, root, user):
 			#print(entry)
 			cachelist.append(entry)
 			
+		
 		conn=sqlite3.connect(path[1])
 		cc=conn.cursor()
 		#user input into forms
@@ -99,7 +120,8 @@ def readFirefoxHistory(launch, root, user):
 								' timesUsed, fieldName FROM moz_formhistory'):
 			#print(entry)
 			forms.append(entry)
-	
+		
+		
 	return(forms, cachelist)
 
 '''
@@ -113,9 +135,10 @@ def readChromeHistory(launch, root, user):
 	path=[]
 	cachelist=[]
 	downs=[]
+	forms=[]
 	os.chdir(root)
-	os.system('dir /s History > '+str(launch)+'\\cache2Finder.txt')
-	os.chdir(launch)
+	os.system('dir /s History > '+str(launch+'\\ResidualWeb')+'\\cache2Finder.txt')
+	os.chdir(launch+'\\ResidualWeb')
 	fh=open('cache2Finder.txt','r')
 	for line in fh:
 		if 'Directory of' in line:
@@ -127,31 +150,104 @@ def readChromeHistory(launch, root, user):
 	fh.close()
 	if not len(l)>0:
 		return([],[])
-	path.append(str(l[2])+' '+str(l[3])+'/History')
+	os.chdir(str(l[2])+' '+str(l[3]))
+	os.system('copy History '+str(launch)+'\\ResidualWeb >>NULL')
+	#print(str(l[2])+' '+str(l[3])+'\\History '+str(launch)+'\\ResidualWeb')
+	path.append(str(launch)+'\\ResidualWeb\\History')
+	#path.append(str(l[2])+' '+str(l[3])+'\\History')
 	if len(path)>0:
 		con=sqlite3.connect(path[0])
 		c=con.cursor()
 		#downloads
-		for entry in c.execute('SELECT datetime((downloads.start_time/1000000-11644473600), "unixepoch"),'
-									'downloads_url_chains.url, total_bytes, target_path FROM downloads, downloads_url_chains'):
+		for entry in c.execute('select datetime((downloads.start_time/1000000-11644473600), "unixepoch"),'
+									'current_path, total_bytes, tab_url FROM downloads'):
 			#print(entry)
 			if not entry==None:
 				downs.append(entry)
 		#urls
-		for entry in c.execute('SELECT datetime((V.visit_time/1000000-11644473600), "unixepoch"), U.url,'
-										' datetime((U.last_visit_time/1000000-11644473600), "unixepoch"), '
-										'U.visit_count FROM urls AS U, visits AS V WHERE U.id = V.url'):
+		for entry in c.execute('select datetime((visits.visit_time/1000000-11644473600), "unixepoch"), urls.url,'
+										' datetime((urls.last_visit_time/1000000-11644473600), "unixepoch"), '
+										'urls.visit_count FROM urls, visits where urls.id = visits.url'):
 			#print(entry)
 			if not entry==None:
 				cachelist.append(entry)
-	else:	
-		return (downs,cachelist)
-		
-	return (downs,cachelist)
+		#form input
+		for entry in c.execute('select lower_term from keyword_search_terms'):
+			if not entry==None:
+				suffix=['?']
+				f=suffix+list(entry)
+				f.append(1)
+				f.append('Chrome')
+				forms.append(tuple(f))
+				f=[]
 
+	else:	
+		return (downs,cachelist,forms)
+	return (downs,cachelist,forms)
+
+
+def cookieDump(launch,root,user):
+	l=[]
+	path=[]
+	os.chdir(root)
+	os.system('dir /s Cookies > '+str(launch+'\\ResidualWeb')+'\\cache2Finder.txt')
+	os.chdir(launch+'\\ResidualWeb')
+	fh=open('cache2Finder.txt','r')
+	cook=open('ResidualCookies'+str(user)+'.txt','a')
+	for line in fh:
+		if 'Directory of' in line:
+				if 'Chrome' in line:
+					if (user.lower() in line) or (user.upper() in line) or (user.capitalize() in line): 
+						if root in line:
+							l=line.split()		#path at l[2]+l[3]
+	
+	fh.close()
+	if not len(l)>0:
+		return([],[])
+	os.chdir(str(l[2])+' '+str(l[3]))
+	#print(str(l[2])+' '+str(l[3]))
+	os.system('copy Cookies '+str(launch)+'\\ResidualWeb\\Cookies >>NULL')
+	path.append(str(launch)+'\\ResidualWeb\\Cookies')
+	if len(path)>0:
+		con=sqlite3.connect(path[0])
+		c=con.cursor()
+		#cookies
+		for entry in c.execute('select * from cookies'):
+			#print(entry)
+			if not entry==None:
+				cook.write('\n::Dump:: '+str(entry))
+		con.close()
+	#moz
+	l=[]
+	path=[]
+	os.chdir(root)
+	os.system('dir /s cookies.sqlite > '+str(launch+'\\ResidualWeb')+'\\cache2Finder.txt')
+	os.chdir(launch+'\\ResidualWeb')
+	fh=open('cache2Finder.txt','r')
+	for line in fh:
+		if 'Directory of' in line:
+				if 'Firefox' in line:
+					if (user.lower() in line) or (user.upper() in line) or (user.capitalize() in line):
+						if root in line:
+							l=line.split()		#path at l[2]
+
+	fh.close()
+	if not len(l)>0:
+		return([],[])
+	path.append(str(l[2])+'\\cookies.sqlite')
+	if len(path)>0:
+		conn=sqlite3.connect(path[0])
+		cc=conn.cursor()
+		#cookies
+		for entry in cc.execute('select * from moz_cookies'):
+			#print(entry)
+			cook.write('\n::Dump:: '+str(entry))
+	
+	conn.close()
+	return
 '''
 find drives on running box
-#return a  list of drives found on box running program
+@return a  list of drives found on box running program
 '''
 def findDrives():
 	return re.findall(r"[A-Z]+:.*$",os.popen("mountvol /").read(),re.MULTILINE)
@@ -161,16 +257,19 @@ removes the clutter from launch drive
 @input launch, the drive that the program is running on
 '''	
 def cleanUp(launch):
-	os.chdir(launch)
+	os.chdir(launch+'\\ResidualWeb')
 	if os.path.exists('cache2Finder.txt'):
 		os.remove('cache2Finder.txt')
 	if os.path.exists('activeUsersCheck.txt'):
 		os.remove('activeUsersCheck.txt')
 	if os.path.exists('userDump.txt'):
 		os.remove('userDump.txt')
+	if os.path.exists('History'):
+		os.remove('History')
 	if os.path.exists('downFinder.txt'):
 		os.remove('downFinder.txt')
-
+	if os.path.exists('Cookies'):
+		os.remove('Cookies')
 '''
 writes html to a file and leaves it on launch drive
 for future analysis
@@ -178,7 +277,7 @@ for future analysis
 @input user, the user who was processed
 '''
 def htmlCreater(launch, user):
-	os.chdir(launch)
+	os.chdir(launch+'\\ResidualWeb')
 	if os.path.exists('residualRender'+str(user)+'.html'):
 		os.remove('residualRender'+str(user)+'.html')
 	fh=open('residualRender'+str(user)+'.html','w')
@@ -382,7 +481,7 @@ def jsonCode(launch, coupleOfTuples, user):
 	hist=dictMaker(coupleOfTuples,[1,3])
 	form=dictMaker(coupleOfTuples,[4])
 	
-	os.chdir(launch)
+	os.chdir(launch+'\\ResidualWeb')
 	if os.path.exists('residualRender'+user+'.json'):
 		os.remove('residualRender'+user+'.json')
 	fh=open('residualRender'+user+'.json','a')
@@ -492,15 +591,18 @@ searches keyword provided by user, prints to screen and exits
 @input root, the target drive
 @input user, the user being processed
 @input key, the keyword to search for
+@input log file handle
 '''
-def searchER(launch,root,user,key):
+def searchER(launch,root,user,key,log):
+	st=time.time()
+	log.write('\n::Term search start:: '+str(datetime.datetime.now()))
 	l=[]
 	path=[]
 	cachelist=[]
 	downs=[]
 	os.chdir(root)
-	os.system('dir /s History > '+str(launch)+'\\cache2Finder.txt')
-	os.chdir(launch)
+	os.system('dir /s History > '+str(launch)+'\\ResidualWeb\\cache2Finder.txt')
+	os.chdir(launch+'\\ResidualWeb')
 	fh=open('cache2Finder.txt','r')
 	for line in fh:
 		if 'Directory of' in line:
@@ -511,25 +613,41 @@ def searchER(launch,root,user,key):
 	
 	fh.close()
 	if len(l)>0:
-		path.append(str(l[2])+' '+str(l[3])+'/History')
+		path.append(str(l[2])+' '+str(l[3])+'\\History')
 		if len(path)>0:
 			con=sqlite3.connect(path[0])
 			c=con.cursor()
 		i=1
 		print('\nFrom Chrome::\n')
-		for entry in c.execute('select count(url) from urls where url like "%'+key+'%"'):
-			print('The keyword ::'+str(key)+':: has been found ::'+str(entry[0])+':: time(s)\n')
-		for entry in c.execute('select url from urls where url like "%'+key+'%"'):
-			print(str(i)+':: '+entry[0]+'\n')
-			i=i+1
+		log.write('\nFrom Chrome::\n')
+		try:
+			for entry in c.execute('select count(url) from urls where url like "%'+key+'%"'):
+				log.write('The keyword ::'+str(key)+':: has been found ::'+str(entry[0])+':: time(s)\n')
+				print('The keyword ::'+str(key)+':: has been found ::'+str(entry[0])+':: time(s)\n')
+			for entry in c.execute('select url from urls where url like "%'+key+'%"'):
+				print(str(i)+':: '+entry[0]+'\n')
+				log.write(str(i)+':: '+entry[0]+'\n')
+				i=i+1
+		except:
+			print('\nFrom Chrome::\n')
+			log.write('\nFrom Chrome::\n')
+			print('The keyword ::'+str(key)+':: has been found ::0:: time(s)\n')
+			log.write('The keyword ::'+str(key)+':: has been found ::0:: time(s)\n')
 		
+	else:
+		print('\nFrom Chrome::\n')
+		log.write('\nFrom Chrome::\n')
+		print('The keyword ::'+str(key)+':: has been found ::0:: time(s)\n')
+		log.write('The keyword ::'+str(key)+':: has been found ::0:: time(s)\n')
+	
+	print('\n\n')
 	l=[]
 	path=[]
 	cachelist=[]
 	forms=[]
 	os.chdir(root)
-	os.system('dir /s places.sqlite > '+str(launch)+'\\cache2Finder.txt')
-	os.chdir(launch)
+	os.system('dir /s places.sqlite > '+str(launch)+'\\ResidualWeb\\cache2Finder.txt')
+	os.chdir(launch+'\\ResidualWeb')
 	fh=open('cache2Finder.txt','r')
 	for line in fh:
 		if 'Directory of' in line:
@@ -540,25 +658,48 @@ def searchER(launch,root,user,key):
 
 	fh.close()
 	if len(l)>0:
-		path.append(str(l[2])+'/places.sqlite')
+		path.append(str(l[2])+'\\places.sqlite')
 		if len(path)>0:
 			i=1
 			conn=sqlite3.connect(path[0])
 			cc=conn.cursor()
 			print('From Firefox::\n')
-			for entry in cc.execute('select count(url) from moz_places where url like "%'+key+'%"'):
-				print('The keyword ::'+str(key)+':: has been found ::'+str(entry[0])+':: time(s)\n')
-			for entry in cc.execute('select url from moz_places where url like "%'+str(key)+'%"'):
-				print(str(i)+':: '+entry[0]+'\n')
-				i=i+1
-				
-	
+			log.write('From Firefox::\n')
+			try:
+				for entry in cc.execute('select count(url) from moz_places where url like "%'+key+'%"'):
+					print('The keyword ::'+str(key)+':: has been found ::'+str(entry[0])+':: time(s)\n')
+					log.write('The keyword ::'+str(key)+':: has been found ::'+str(entry[0])+':: time(s)\n')
+				for entry in cc.execute('select url from moz_places where url like "%'+str(key)+'%"'):
+					print(str(i)+':: '+entry[0]+'\n')
+					log.write(str(i)+':: '+entry[0]+'\n')
+					i=i+1
+			except:
+				print('From Firefox::\n')
+				log.write('From Firefox::\n')
+				print('The keyword ::'+str(key)+':: has been found ::0:: time(s)\n')
+				log.write('The keyword ::'+str(key)+':: has been found ::0:: time(s)\n')
+
 		
+	else:
+		print('From Firefox::\n')
+		log.write('From Firefox::\n')
+		print('The keyword ::'+str(key)+':: has been found ::0:: time(s)\n')
+		log.write('The keyword ::'+str(key)+':: has been found ::0:: time(s)\n')
+
+	log.write('::Time Elapsed:: '+str(time.time()-st)+' seconds')
+	return
+
 '''
 main function allows user to select drive and validates user provided
 '''
 def main():
 	launch=os.getcwd()
+	if not os.path.exists(launch+'\\ResidualWeb'):
+		os.mkdir(launch+'\\ResidualWeb')
+	log=open(launch+'\\ResidualWeb\\ResidualLog.txt','a')
+	log.write('\n\n::BEGIN TEST::\n\n::Start time:: '+str(datetime.datetime.now()))
+	log.write('\n\n::Launched from:: '+str(launch))
+	start=time.time()
 	drives=findDrives()
 	i=1
 	ilist=[]
@@ -571,59 +712,122 @@ def main():
 	ui=input('\nDrive selection # : ')
 	if not ui in ilist:
 		print('Invalid option')
+		input()
+		os.system('cls')
 		main()
 	root=drives[int(ui)-1]
+	log.write('\n\n::Drive selection:: '+str(root))
 	try:
 		os.chdir(root)
 	except:
+		log.write('\nSomething went wrong:: Exiting\n')
 		print('Something went wrong:: Exiting')
 		input('Press Enter')
+		log.close()
 		sys.exit(-1)
-	options=grabUsers(launch,root)
+	#options=grabUsers(launch,root)
+	options=grabUsers2(launch,root)
 	print('\n---------\nPotential Users\n---------')
 	for o in options:
 		print('| '+str(o)+' |')
 	print('---------')
 	usr=input('\nUser name: ')
+	if len(usr)<1:
+		os.system('cls')
+		main()
 	if not checkUserExist(root,usr):
 		print('User ::'+str(usr)+':: Does Not Exist')
+		input()
+		os.system('cls')
 		main()
+	log.write('\n\n::User selected:: '+str(usr))
+	looper(launch,root,usr,log)
+	log.write('\n\n::Time Elapsed:: '+str(time.time()-start)+' seconds\n\n::END TEST::\n')
+	log.close()
+	sys.exit()
+	
+	
+'''
+does the work
+'''
+def looper(launch,root,usr,log):
 	print('\n-------------------\n| 1 | Term Search |'
 			'\n-------------------\n| 2 | Full Search |'
+			'\n-------------------\n| 3 | Cookie Dump |'
+			'\n-------------------\n| 4 | Exit        |'
 			'\n-------------------')
 	ui=input('\n# : ')
 	if ui=='1':
 		ui=input('\nTerm to search: ')
-		searchER(launch,root,usr,ui)
+		if len(ui)<1:
+			os.system('cls')
+			looper(launch,root,usr,log)
+		log.write('\n\n::Term Search:: '+str(ui))
+		searchER(launch,root,usr,ui,log)
 		cleanUp(launch)
-		input('\nEnter to Quit')
-		return
+		print('\nType q or quit to Quit')
+		q=input('\nHit Enter to continue\n::')
+		if q in ('q','Q','quit','Quit'):
+			log.write('\n\n::User Quit:: '+str(datetime.datetime.now())+'\n')
+			log.close()
+			sys.exit(1)
+		else:
+			os.system('cls')
+			looper(launch,root,usr,log)
+		
 	elif ui=='2':
 		try:
+			log.write('\n\n::Attempting Full Search::'+str(datetime.datetime.now()))
+			print('\n\n::Attempting Full Search::')
+			testTime=time.time()
 			for u in usr.split():
 				fire=readFirefoxHistory(launch, root, u)
 				chrome=readChromeHistory(launch, root, u)
 				htmlCreater(launch, u)
-				if (len(chrome[0])+len(chrome[1])>0) and (len(fire[0])+len(fire[1])>0):
-					jsonCode(launch, ((),fire[1],chrome[0],chrome[1],fire[0]),u)
-				elif (len(chrome[0])+len(chrome[1])>0):
-					jsonCode(launch, ((),(),chrome[0],chrome[1],()),u)
+				if (len(chrome[0])+len(chrome[1])+len(chrome[2])>0) and (len(fire[0])+len(fire[1])>0):
+					jsonCode(launch, ((),fire[1],chrome[0],chrome[1],fire[0]+chrome[2]),u)
+				elif (len(chrome[0])+len(chrome[1])+len(chrome[2])>0):
+					jsonCode(launch, ((),(),chrome[0],chrome[1],chrome[2]),u)
 				elif (len(fire[0])+len(fire[1])>0):
 					jsonCode(launch, ((),fire[1],(),(),fire[0]),u)
 				else:
 					jsonCode(launch,((),(),(),(),()),u)
 		except:
 			print('Something went wrong::Exiting...')
+			log.write('\n\nSomething went wrong::Exiting...\n')
 			input()
+			log.write('\n\n::End:: '+str(datetime.datetime.now())+'\n')
+			log.close()
 			cleanUp(launch)
 			sys.exit(-1)
 		cleanUp(launch)
 		print('::Done::')
+		log.write('\n\n::Time Elapsed:: '+str(time.time()-testTime)+' seconds\n\n::Done::')
 		input()
+		os.system('cls')
+		looper(launch,root,usr,log)
+		return
+	elif ui=='3':
+		st=datetime.datetime.now()
+		testTime=time.time()
+		log.write('\n\n::Cookie Dump:: '+str(st))
+		cookieDump(launch,root,usr)
+		log.write('\n\n::Time Elapsed:: '+str(time.time()-testTime)+' seconds')
+		print('::Done::')
+		input()
+		os.system('cls')
+		looper(launch,root,usr,log)
+		return
+	elif ui=='4':
+		log.write('\n\n::User Quit:: '+str(datetime.datetime.now())+'\n')
+		log.close()
+		cleanUp(launch)
+		sys.exit(-1)
 		return
 	else:
+		os.system('cls')
 		print('Invalid option')
-		main()
+		looper(launch,root,usr, log)
 	
 	
 #running on windows?
